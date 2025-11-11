@@ -7,6 +7,8 @@ import sys
 import typing
 from io import TextIOWrapper
 
+from . import log
+
 logger = logging.getLogger(__name__)
 
 HERE = pathlib.Path(__file__).absolute().parent
@@ -98,8 +100,30 @@ def run(
             stdin=stdin,
         )
         output = completed.stdout.decode("utf-8") if completed.stdout else ""
+
+    # Prefix output lines with package name/version for greppability
+    formatted_output = None
+    if output:
+        prefix = log.get_log_prefix()
+        if prefix:
+            # Add prefix to all lines for greppability
+            formatted_output = "{}: {}".format(
+                prefix,
+                output.replace("\n", f"\n{prefix}: "),
+            )
+        else:
+            formatted_output = output
+
     if completed.returncode != 0:
-        logger.error("%s failed with %s", cmd, output)
+        # Log complete error message with command, exit code, and output
+        output_to_log = "\n" + formatted_output if formatted_output else ""
+        logger.error(
+            "command failed with exit code %d: %s%s",
+            completed.returncode,
+            shlex.join(cmd),
+            output_to_log,
+        )
+
         err_type = subprocess.CalledProcessError
         if network_isolation:
             # Look for a few common messages that mean there is a network
@@ -113,5 +137,9 @@ def run(
                 if substr in output:
                     err_type = NetworkIsolationError
         raise err_type(completed.returncode, cmd, output)
-    logger.debug("output: %s", output)
+
+    # Log command output with visual prefix to distinguish from fromager output
+    if formatted_output:
+        logger.debug(formatted_output)
+
     return output
